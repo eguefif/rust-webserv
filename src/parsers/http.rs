@@ -23,47 +23,40 @@ pub fn parse_header(packet: &str) -> (HashMap<String, String>, HashMap<String, S
     let mut headers: HashMap<String, String> = HashMap::new();
     let mut lines = packet.lines();
     let request_line = get_request_line(lines.next().expect("Error while parsing request line"));
-    lines.for_each(|line| {
+    for line in lines {
         if line.len() != 0 {
             let mut splits = line.split(":");
-            eprintln!("Line: {}", line);
-            let key = splits
-                .next()
-                .expect("Error while parsing headers")
-                .trim()
-                .to_lowercase();
-            let content = splits
-                .next()
-                .expect("Error while parsing headers")
-                .trim()
-                .to_lowercase();
-            headers.insert(key, content);
+            if let Some(key) = splits.next() {
+                if let Some(content) = splits.next() {
+                    headers.insert(key.trim().to_lowercase(), content.trim().to_lowercase());
+                } else {
+                    eprintln!("Parsing headers: Empty value for {}", key);
+                }
+            } else {
+                continue;
+            }
         }
-    });
+    }
     (request_line, headers)
 }
 
 fn get_request_line(request_line_str: &str) -> HashMap<String, String> {
     let mut splits = request_line_str.split(" ");
     let mut request_line = HashMap::new();
-    let method = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line method"),
-    );
-    let path = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line path"),
-    );
-    let version = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line protocol"),
-    );
-    request_line.insert(String::from("method"), method);
-    request_line.insert(String::from("path"), path);
-    request_line.insert(String::from("version"), version);
-
+    if let Some(method) = splits.next() {
+        request_line.insert(String::from("method"), String::from(method));
+    } else {
+        request_line.insert(String::from("method"), String::from("error"));
+    }
+    if let Some(path) = splits.next() {
+        request_line.insert(String::from("path"), String::from(path));
+    } else {
+        request_line.insert(String::from("path"), String::from("error"));
+    }
+    if let Some(protocol) = splits.next() {
+        request_line.insert(String::from("protocol"), String::from(protocol));
+    } else {
+        request_line.insert(String::from("protocol"), String::from("error"));
+    }
     request_line
 }
