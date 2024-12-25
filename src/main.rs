@@ -1,81 +1,19 @@
-use std::collections::HashMap;
+use crate::parsers::http::HttpPacket;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
-struct HttpPacket {
-    request_line: HashMap<String, String>,
-    headers: HashMap<String, String>,
-    body: Vec<u8>,
-}
-
-impl HttpPacket {
-    pub fn new(packet: &str) -> HttpPacket {
-        let (request_line, headers) = parse_header(packet);
-        HttpPacket {
-            request_line,
-            headers,
-            body: vec![],
-        }
-    }
-}
-
-fn parse_header(packet: &str) -> (HashMap<String, String>, HashMap<String, String>) {
-    let mut headers: HashMap<String, String> = HashMap::new();
-    let mut lines = packet.lines();
-    let request_line = get_request_line(lines.next().expect("Error while parsing request line"));
-    lines.for_each(|line| {
-        if line.len() != 0 {
-            let mut splits = line.split(":");
-            let key = splits
-                .next()
-                .expect("Error while parsing headers")
-                .trim()
-                .to_lowercase();
-            let content = splits
-                .next()
-                .expect("Error while parsing headers")
-                .trim()
-                .to_lowercase();
-            headers.insert(key, content);
-        }
-    });
-    (request_line, headers)
-}
-
-fn get_request_line(request_line_str: &str) -> HashMap<String, String> {
-    let mut splits = request_line_str.split(" ");
-    let mut request_line = HashMap::new();
-    let method = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line method"),
-    );
-    let path = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line path"),
-    );
-    let version = String::from(
-        splits
-            .next()
-            .expect("Error while parsing request line protocol"),
-    );
-    request_line.insert(String::from("method"), method);
-    request_line.insert(String::from("path"), path);
-    request_line.insert(String::from("version"), version);
-
-    request_line
-}
+pub mod parsers;
 
 #[tokio::main]
 async fn main() {
     let server = TcpListener::bind("127.0.0.1:8888").await.unwrap();
     loop {
-        let (socket, _) = server.accept().await.unwrap();
-        tokio::spawn(async move { process(socket).await });
+        let (mut socket, _) = server.accept().await.unwrap();
+        tokio::spawn(async move { process(&mut socket).await });
     }
 }
 
-async fn process(socket: TcpStream) {
+async fn process(socket: &mut TcpStream) {
     let mut raw_packet: Vec<u8> = vec![];
     let mut nbytes = 0;
     loop {
@@ -90,6 +28,29 @@ async fn process(socket: TcpStream) {
     let packet =
         String::from_utf8(raw_packet).expect("Error while converting bytes into string (reading)");
     let http_packet = HttpPacket::new(&packet);
+    eprintln!("Receive: {} bytes", nbytes);
     eprintln!("Http request line : {:?}", http_packet.request_line);
     eprintln!("Http headers : {:?}", http_packet.headers);
+    let response = create_response(http_packet);
+    eprintln!("sending: {:?}", response.as_bytes());
+    socket
+        .write_all(response.as_bytes())
+        .await
+        .expect("Error while writing in socket");
+}
+
+fn create_response(http_packet: HttpPacket) -> String {
+    let mut response = String::new();
+    response.push_str("HTTP/1.1 200 OK\r\n");
+    response.push_str(format!("Date: {}\r\n", get_time().as_str()).as_str());
+    response.push_str("Content-Length: 12\r\n");
+    response.push_str("Server: rust-webserv");
+    response.push_str("\r\n\r\n");
+    response.push_str("Hello, World");
+
+    response
+}
+
+fn get_time() -> String {
+    String::from("Wed, 25 Dec 2024 15:10:17 GMT")
 }
