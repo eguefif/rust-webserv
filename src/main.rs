@@ -8,6 +8,7 @@ pub mod parsers;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let server = TcpListener::bind("127.0.0.1:8888").await?;
+    eprintln!("Listening on 127.0.0.1:8888");
     loop {
         let (mut socket, _) = server.accept().await?;
         tokio::spawn(async move { process(&mut socket).await });

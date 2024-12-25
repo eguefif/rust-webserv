@@ -1,4 +1,6 @@
 use crate::parsers::http::HttpPacket;
+use chrono::Utc;
+use chrono::prelude::*;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
@@ -50,6 +52,33 @@ fn create_response(body: String) -> String {
 }
 
 fn get_time() -> String {
-    // TODO: set date properly
-    String::from("Wed, 25 Dec 2024 15:10:17 GMT")
+    let date = Utc::now();
+    format!(
+        "{}, {} {} {} {}:{}:{} GMT",
+        date.weekday(),
+        date.day(),
+        get_month(date.month()),
+        date.year(),
+        date.hour(),
+        date.minute(),
+        date.second()
+    )
+}
+
+fn get_month(month: u32) -> String {
+    match month {
+        1 => String::from("jan"),
+        2 => String::from("feb"),
+        3 => String::from("mar"),
+        4 => String::from("apr"),
+        5 => String::from("may"),
+        6 => String::from("june"),
+        7 => String::from("july"),
+        8 => String::from("aug"),
+        9 => String::from("sept"),
+        10 => String::from("oct"),
+        11 => String::from("nov"),
+        12 => String::from("dec"),
+        _ => String::from("Error month"),
+    }
 }
