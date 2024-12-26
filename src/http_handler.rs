@@ -4,9 +4,17 @@ use chrono::prelude::*;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-pub async fn handle_packet(raw_packet: &Vec<u8>, socket: &mut TcpStream) -> bool {
+pub enum HttpState {
+    Receiving,
+    Handled,
+    Closed,
+}
+
+pub async fn handle_packet(raw_packet: &Vec<u8>, socket: &mut TcpStream) -> HttpState {
     if raw_packet.len() < 4 || !is_header_receive(raw_packet) {
-        return true;
+        eprintln!("raw: {:?}", raw_packet);
+        eprintln!("");
+        return HttpState::Receiving;
     }
     let packet = String::from_utf8(raw_packet.clone())
         .expect("Error while converting bytes into string (reading)");
@@ -14,14 +22,15 @@ pub async fn handle_packet(raw_packet: &Vec<u8>, socket: &mut TcpStream) -> bool
     eprintln!("Http request line : {:?}", http_packet.request_line);
     eprintln!("Http headers : {:?}", http_packet.headers);
     if is_connection_closing(&http_packet) {
-        return false;
+        return HttpState::Closed;
     }
     let response = create_response(String::from("Hello, World!"));
     socket
         .write_all(response.as_bytes())
         .await
         .expect("Error while writing in socket");
-    return true;
+    eprintln!("Sending");
+    return HttpState::Handled;
 }
 
 fn is_connection_closing(http_packet: &HttpPacket) -> bool {

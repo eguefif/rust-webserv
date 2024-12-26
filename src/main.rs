@@ -1,4 +1,5 @@
-use crate::http_handler::handle_packet;
+use crate::http_handler::{HttpState, handle_packet};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
@@ -29,6 +30,7 @@ async fn worker(token: CancellationToken) {
         let mut tasks = Vec::new();
         loop {
             if let Ok((mut socket, _)) = server.accept().await {
+                eprintln!("New connection: {}", socket.peer_addr().unwrap());
                 let cloned_token = token.clone();
                 tasks.push(tokio::spawn(async move {
                     process(&mut socket, cloned_token).await
@@ -43,25 +45,27 @@ async fn worker(token: CancellationToken) {
 }
 
 async fn process(socket: &mut TcpStream, token: CancellationToken) {
-    let mut raw_packet: Vec<u8> = vec![];
+    let mut raw_packet: Vec<u8> = Vec::with_capacity(1024 * 50);
     loop {
-        if let Ok(_) = socket.readable().await {
-            let mut buff = [0; 10];
-            match socket.try_read(&mut buff[..]) {
-                Ok(n) => {
-                    if n == 0 {
-                        eprintln!("Socket closed by client");
+        let mut buff = [0; 1024];
+        match socket.read(&mut buff[..]).await {
+            Ok(0) => {
+                eprintln!("Socket closed by client");
+                break;
+            }
+            Ok(n) => {
+                raw_packet.extend_from_slice(&buff[..n]);
+                match handle_packet(&raw_packet, socket).await {
+                    HttpState::Receiving => {}
+                    HttpState::Closed => {
+                        eprintln!("Connection closed");
                         break;
                     }
-                    raw_packet.extend_from_slice(&buff);
-                    if !handle_packet(&raw_packet, socket).await {
-                        eprintln!("Connection closed");
-                    }
+
+                    HttpState::Handled => raw_packet.clear(),
                 }
-                Err(_) => raw_packet.clear(),
             }
-        } else {
-            eprintln!("Socket not readable");
+            Err(_) => raw_packet.clear(),
         }
     }
     eprintln!("Closing socket");
