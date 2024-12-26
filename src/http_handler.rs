@@ -1,36 +1,54 @@
+use crate::http_frame::Error;
+use crate::http_frame::{HttpFrame, Result};
 use crate::parsers::http::HttpPacket;
+use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
-use tokio::io::AsyncWriteExt;
+use std::io::Cursor;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
-pub enum HttpState {
-    Receiving,
-    Handled,
-    Closed,
+pub struct HttpConnection {
+    stream: TcpStream,
+    buf: BytesMut,
 }
 
-pub async fn handle_packet(raw_packet: &Vec<u8>, socket: &mut TcpStream) -> HttpState {
-    if raw_packet.len() < 4 || !is_header_receive(raw_packet) {
-        eprintln!("raw: {:?}", raw_packet);
-        eprintln!("");
-        return HttpState::Receiving;
+impl HttpConnection {
+    pub fn new(stream: TcpStream) -> HttpConnection {
+        return HttpConnection {
+            stream,
+            buf: BytesMut::with_capacity(1024 * 4),
+        };
     }
-    let packet = String::from_utf8(raw_packet.clone())
-        .expect("Error while converting bytes into string (reading)");
-    let http_packet = HttpPacket::new(&packet);
-    eprintln!("Http request line : {:?}", http_packet.request_line);
-    eprintln!("Http headers : {:?}", http_packet.headers);
-    if is_connection_closing(&http_packet) {
-        return HttpState::Closed;
+
+    pub async fn read_frame(&mut self) -> Result<Option<HttpFrame>> {
+        loop {
+            if let Some(frame) = self.parse_frame()? {
+                return Ok(Some(frame));
+            }
+            if let Ok(n) = self.stream.read_buf(&mut self.buf).await {
+                if self.buf.is_empty() && n == 0 {
+                    return Ok(None);
+                } else {
+                    return Err(Error::Other("Connection was closed by peer".to_string()));
+                }
+            } else {
+                return Err(Error::Other("Error while reading socket".to_string()));
+            }
+        }
     }
-    let response = create_response(String::from("Hello, World!"));
-    socket
-        .write_all(response.as_bytes())
-        .await
-        .expect("Error while writing in socket");
-    eprintln!("Sending");
-    return HttpState::Handled;
+
+    fn parse_frame(&mut self) -> Result<Option<HttpFrame>> {
+        let mut buf = Cursor::new(&self.buf[..]);
+        if let Ok(_) = HttpFrame::is_header_receive(&mut buf) {
+            let len = buf.position();
+            buf.set_position(0);
+            let retval = HttpFrame::parse_header(&mut buf, len as usize)?;
+            self.buf.advance(len as usize);
+            return Ok(Some(retval));
+        }
+        return Ok(None);
+    }
 }
 
 fn is_connection_closing(http_packet: &HttpPacket) -> bool {
@@ -38,14 +56,6 @@ fn is_connection_closing(http_packet: &HttpPacket) -> bool {
         return connection != "keep-alive";
     }
     true
-}
-
-fn is_header_receive(raw_packet: &Vec<u8>) -> bool {
-    let idx = raw_packet.len() - 4;
-    raw_packet[idx] == 13
-        && raw_packet[idx + 1] == 10
-        && raw_packet[idx + 2] == 13
-        && raw_packet[idx + 3] == 10
 }
 
 fn create_response(body: String) -> String {
