@@ -43,23 +43,32 @@ impl HttpFrame {
         let method;
         let uri;
         let version;
-        if let Some(request_line) = HttpFrame::get_next_line(buff, end) {
-            (method, uri, version) = HttpFrame::get_request_line(request_line.as_str());
+        if let Some(first_line) = HttpFrame::get_next_line(buff, end) {
+            if let Ok(request_line) = String::from_utf8(first_line) {
+                (method, uri, version) = HttpFrame::get_request_line(request_line.as_str());
+            } else {
+                return Err(Error::Other("Parsing error on request line".to_string()));
+            }
         } else {
             return Err(Error::Incomplete);
         }
         let mut headers = HashMap::new();
-        while let Some(line) = HttpFrame::get_next_line(buff, end) {
-            if line.len() != 0 {
-                let mut splits = line.split(":");
-                if let Some(key) = splits.next() {
-                    if let Some(content) = splits.next() {
-                        headers.insert(key.trim().to_lowercase(), content.trim().to_lowercase());
+        while let Some(raw_line) = HttpFrame::get_next_line(buff, end) {
+            if raw_line.len() != 0 {
+                if let Ok(line) = String::from_utf8(raw_line) {
+                    let mut splits = line.split(":");
+                    if let Some(key) = splits.next() {
+                        if let Some(content) = splits.next() {
+                            headers
+                                .insert(key.trim().to_lowercase(), content.trim().to_lowercase());
+                        } else {
+                            eprintln!("Parsing headers: Empty value for {}", key);
+                        }
                     } else {
-                        eprintln!("Parsing headers: Empty value for {}", key);
+                        continue;
                     }
                 } else {
-                    continue;
+                    return Err(Error::Other("Error while parsing header".to_string()));
                 }
             }
         }
@@ -68,13 +77,12 @@ impl HttpFrame {
         )))
     }
 
-    fn get_next_line(buff: &mut Cursor<&[u8]>, end: usize) -> Option<String> {
+    fn get_next_line(buff: &mut Cursor<&[u8]>, end: usize) -> Option<Vec<u8>> {
         let start = buff.position() as usize;
         for i in start..(end - 1) {
             if buff.get_ref()[i] == 13 && buff.get_ref()[i + 1] == 10 {
                 buff.set_position((i + 2) as u64);
-                let retval = buff.get_ref()[start..i].to_vec();
-                return Some(String::from_utf8(retval));
+                return Some(buff.get_ref()[start..i].to_vec());
             }
         }
         return None;
