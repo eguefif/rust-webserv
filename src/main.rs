@@ -1,6 +1,5 @@
 use crate::http_handler::handle_packet;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::select;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
@@ -29,8 +28,8 @@ async fn worker(token: CancellationToken) {
         eprintln!("Listening on 127.0.0.1:8888");
         let mut tasks = Vec::new();
         loop {
-            let cloned_token = token.clone();
             if let Ok((mut socket, _)) = server.accept().await {
+                let cloned_token = token.clone();
                 tasks.push(tokio::spawn(async move {
                     process(&mut socket, cloned_token).await
                 }));

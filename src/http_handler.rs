@@ -67,18 +67,18 @@ fn get_time() -> String {
 
 fn get_month(month: u32) -> String {
     match month {
-        1 => String::from("jan"),
-        2 => String::from("feb"),
-        3 => String::from("mar"),
-        4 => String::from("apr"),
-        5 => String::from("may"),
-        6 => String::from("june"),
-        7 => String::from("july"),
-        8 => String::from("aug"),
-        9 => String::from("sept"),
-        10 => String::from("oct"),
-        11 => String::from("nov"),
-        12 => String::from("dec"),
+        1 => String::from("Jan"),
+        2 => String::from("Feb"),
+        3 => String::from("Mar"),
+        4 => String::from("Apr"),
+        5 => String::from("May"),
+        6 => String::from("Jun"),
+        7 => String::from("Jul"),
+        8 => String::from("Aug"),
+        9 => String::from("Sep"),
+        10 => String::from("Oct"),
+        11 => String::from("Nov"),
+        12 => String::from("Dec"),
         _ => String::from("Error month"),
     }
 }
