@@ -1,0 +1,59 @@
+ <!DOCTYPE html>
+<html>
+
+<head>
+</head>
+<body>
+
+<h1>Chat</h1>
+<div id="app">
+  <p>Enter your pseudo and click connect</p>
+  <form id="pseudoForm">
+    <label for="pseudo"/>Pseudo: 
+    <input type="text" id="pseudo" name="pseudo"/>
+    <button id="connect">Connect</button>
+  </form>
+</div>
+
+     <script>
+     document.addEventListener("DOMContentLoaded", function () {
+          const socket = new WebSocket("ws://127.0.0.1:8888/ws")
+          console.log(socket)
+
+          socket.addEventListener("open", (event) => {
+            console.log("Connect to server")
+
+            const connectButton = document.getElementById("connect")
+            if (connectButton != null) {
+              connectButton.addEventListener("click", function (e) {
+                e.preventDefault()
+                const formDiv = document.getElementById("app")
+                const pseudoInput = document.getElementById("pseudo")
+                const pseudo = pseudoInput.value
+                socket.send(pseudo)
+                formDiv.innerHTML = `
+                  <label for="message">Message: 
+                  <input type="text" id="message" name="message">
+                  <button id="send">Send</button>
+                  <div id="messages"></div>
+  `
+
+                const sendButton = document.getElementById("send")
+                sendButton.addEventListener("click", (event) => {
+                    event.preventDefault()
+                    const messageInput = document.getElementById("message")
+                    socket.send(`${pseudo}: ${messageInput.value}`)
+                  })
+
+                  socket.addEventListener("message", (event) => {
+                    const messagesDiv = document.getElementById("messages")
+                    messagesDiv.innerHTML = `${messagesDiv.innerHTML}<br>${event.data}`
+              })
+              })
+            }
+          })
+        })
+
+     </script>
+</body>
+</html> 

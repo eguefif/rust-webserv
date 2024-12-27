@@ -3,6 +3,7 @@ use crate::http_frame::RequestHead;
 use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
+use std::fs;
 use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -25,10 +26,13 @@ impl HttpConnection {
                 Ok(header_result) => {
                     if let Some(header) = header_result {
                         eprintln!(
-                            "Header: {} {} {}\n{:?}",
+                            "Header: {} {} {}\n{:?}\n",
                             header.method, header.uri, header.version, header.headers
                         );
-                        self.send_response().await;
+                        match self.get_body(header.uri) {
+                            Ok(body) => self.send_response(body, 200).await,
+                            Err(error) => self.send_error(error).await,
+                        }
                     }
                 }
                 Err(e) => eprintln!("Error while handling request: {:?}", e),
@@ -69,23 +73,67 @@ impl HttpConnection {
         }
     }
 
-    async fn send_response(&mut self) {
-        let response = self.create_response(String::from("Hello, World"));
-        self.stream.write_all(response.as_bytes()).await.unwrap();
+    fn get_body(&mut self, uri: String) -> Result<Vec<u8>, String> {
+        let path;
+        if uri == "/" {
+            path = format!("./html/index.html");
+        } else {
+            path = format!("./html/{}", uri);
+        }
+        if let Ok(retval) = fs::read(path) {
+            return Ok(retval);
+        } else {
+            return Err("404".to_string());
+        }
     }
-    fn create_response(&mut self, body: String) -> String {
+
+    async fn send_response(&mut self, body: Vec<u8>, status_code: u32) {
+        let response = self.create_response(body.len(), status_code);
+        eprintln!("Sending: {}\n", response);
+        self.stream.write_all(response.as_bytes()).await.unwrap();
+        if !body.is_empty() {
+            self.stream.write_all(&body).await.unwrap();
+        }
+    }
+
+    async fn send_error(&mut self, error: String) {
+        let uri = match error.as_str() {
+            "400" => String::from("400.html"),
+            "404" => String::from("404.html"),
+            "415" => String::from("415.html"),
+            "500" => String::from("500.html"),
+            _ => String::from("500.html"),
+        };
+        let body = self.get_body(uri).unwrap();
+        let header = self.create_response(body.len(), error.parse::<u32>().unwrap());
+        eprintln!("Sending: {}\n", header);
+        self.stream.write_all(header.as_bytes()).await.unwrap();
+        if !body.is_empty() {
+            self.stream.write_all(&body).await.unwrap();
+        }
+    }
+    fn create_response(&mut self, len: usize, code: u32) -> String {
         let mut response = String::new();
-        response.push_str("HTTP/1.1 200 OK\r\n");
+        response.push_str(format!("HTTP/1.1 {}\r\n", self.get_status_code(code)).as_str());
         response.push_str(format!("Date: {}\r\n", get_time().as_str()).as_str());
-        response.push_str(format!("Content-Length: {}\r\n", body.len()).as_str());
+        response.push_str(format!("Content-Length: {}\r\n", len).as_str());
         response.push_str("Server: rust-webserv");
         response.push_str("\r\n\r\n");
-        response.push_str(body.as_str());
 
         response
     }
-}
 
+    fn get_status_code(&self, code: u32) -> String {
+        match code {
+            200 => "200 OK".to_string(),
+            400 => "200 Bad Request".to_string(),
+            404 => "200 Not Found".to_string(),
+            415 => "200 Unsupported Media".to_string(),
+            500 => "200 Internal Error".to_string(),
+            _ => "500 Internal Error".to_string(),
+        }
+    }
+}
 fn get_time() -> String {
     let date = Utc::now();
     format!(
