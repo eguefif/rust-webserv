@@ -1,24 +1,15 @@
 use crate::http_frame::{Error, RequestHead};
 use crate::http_frame::{HttpFrame, Result};
-use crate::parsers::http::HttpPacket;
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
 use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-#[derive(Debug)]
-enum HttpState {
-    Header,
-    Body,
-    Closed,
-}
-
 pub struct HttpConnection {
     stream: TcpStream,
     buf: BytesMut,
-    state: HttpState,
 }
 
 impl HttpConnection {
@@ -26,22 +17,22 @@ impl HttpConnection {
         return HttpConnection {
             stream,
             buf: BytesMut::with_capacity(1024 * 4),
-            state: HttpState::Header,
         };
     }
 
     pub async fn handle(&mut self) {
         loop {
-            if let Ok(header) = self.get_header().await {
-                if let Some(header) = header {
-                    eprintln!(
-                        "Header: {} {} {}\n{:?}",
-                        header.method, header.uri, header.version, header.headers
-                    );
-                    self.send_response().await;
+            match self.get_header().await {
+                Ok(header_result) => {
+                    if let Some(header) = header_result {
+                        eprintln!(
+                            "Header: {} {} {}\n{:?}",
+                            header.method, header.uri, header.version, header.headers
+                        );
+                        self.send_response().await;
+                    }
                 }
-            } else {
-                eprintln!("Error while handling request");
+                Err(e) => eprintln!("Error while handling request: {:?}", e),
             }
         }
     }
@@ -53,14 +44,14 @@ impl HttpConnection {
             }
 
             if let Ok(n) = self.stream.read_buf(&mut self.buf).await {
-                if self.buf.is_empty() && n == 0 {
-                    return Ok(None);
-                } else {
-                    eprintln!("Error connection closed by peer");
-                    return Err(Error::Other("Connection was closed by peer".to_string()));
+                if n == 0 {
+                    if self.buf.is_empty() {
+                        return Ok(None);
+                    } else {
+                        return Err(Error::Other("Connection was closed by peer".to_string()));
+                    }
                 }
             } else {
-                eprintln!("Error while reading buffer");
                 return Err(Error::Other("Error while reading buffer".to_string()));
             }
         }
@@ -72,9 +63,7 @@ impl HttpConnection {
             let len = buf.position();
             buf.set_position(0);
             let retval = Some(HttpFrame::parse_header(&mut buf, len as usize).unwrap());
-            println!("Request: {:?}", self.buf);
             self.buf.advance(len as usize);
-            self.state = HttpState::Body;
             return retval;
         } else {
             None
