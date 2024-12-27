@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use bytes::Bytes;
 use std::collections::HashMap;
+use std::error::Error;
 use std::io::{Cursor, Seek, SeekFrom};
 
 #[derive(Debug)]
@@ -11,17 +12,15 @@ pub enum HttpFrame {
 }
 
 #[derive(Debug)]
-pub enum Error {
+enum HttpError {
     Incomplete,
     Other(String),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
-
 impl HttpFrame {
-    pub fn is_header_receive(buf: &mut Cursor<&[u8]>) -> Result<()> {
+    pub fn is_header_receive(buf: &mut Cursor<&[u8]>) -> Option<()> {
         if buf.get_ref().len() < 4 {
-            return Err(Error::Incomplete);
+            return None;
         }
         if let Ok(position) = buf.seek(SeekFrom::End(0)) {
             let raw_data = buf.get_ref();
@@ -31,14 +30,23 @@ impl HttpFrame {
                 && raw_data[position as usize - 4] == 13
             {
                 buf.set_position(position as u64);
-                return Ok(());
+                return Some(());
             }
         }
 
-        Err(Error::Incomplete)
+        None
     }
 
-    pub fn parse_header(buff: &mut Cursor<&[u8]>, end: usize) -> Result<RequestHead> {
+    pub fn parse_header(buff: &mut Cursor<&[u8]>, end: usize) -> Result<RequestHead, String> {
+        let (method, uri, version) = HttpFrame::parse_request_line(buff, end)?;
+        let headers = HttpFrame::get_headers(buff, end)?;
+        Ok(RequestHead::new(method, uri, version, headers))
+    }
+
+    fn parse_request_line(
+        buff: &mut Cursor<&[u8]>,
+        end: usize,
+    ) -> Result<(String, String, String), String> {
         let method;
         let uri;
         let version;
@@ -46,11 +54,18 @@ impl HttpFrame {
             if let Ok(request_line) = String::from_utf8(first_line) {
                 (method, uri, version) = HttpFrame::get_request_line(request_line.as_str());
             } else {
-                return Err(Error::Other("Parsing error on request line".to_string()));
+                return Err("Invalid request line".to_string());
             }
         } else {
-            return Err(Error::Incomplete);
+            return Err("Missing request line".to_string());
         }
+        Ok((method, uri, version))
+    }
+
+    fn get_headers(
+        buff: &mut Cursor<&[u8]>,
+        end: usize,
+    ) -> Result<HashMap<String, String>, String> {
         let mut headers = HashMap::new();
         while let Some(raw_line) = HttpFrame::get_next_line(buff, end) {
             if raw_line.len() != 0 {
@@ -67,11 +82,11 @@ impl HttpFrame {
                         continue;
                     }
                 } else {
-                    return Err(Error::Other("Error while parsing header".to_string()));
+                    return Err("Invalid headers".to_string());
                 }
             }
         }
-        Ok(RequestHead::new(method, uri, version, headers))
+        Ok(headers)
     }
 
     fn get_next_line(buff: &mut Cursor<&[u8]>, end: usize) -> Option<Vec<u8>> {

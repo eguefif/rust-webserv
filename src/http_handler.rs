@@ -1,5 +1,5 @@
-use crate::http_frame::{Error, RequestHead};
-use crate::http_frame::{HttpFrame, Result};
+use crate::http_frame::HttpFrame;
+use crate::http_frame::RequestHead;
 use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
@@ -11,7 +11,6 @@ pub struct HttpConnection {
     stream: TcpStream,
     buf: BytesMut,
 }
-
 impl HttpConnection {
     pub fn new(stream: TcpStream) -> HttpConnection {
         return HttpConnection {
@@ -37,9 +36,9 @@ impl HttpConnection {
         }
     }
 
-    async fn get_header(&mut self) -> Result<Option<RequestHead>> {
+    async fn get_header(&mut self) -> Result<Option<RequestHead>, String> {
         loop {
-            if let Some(header) = self.parse_header() {
+            if let Some(header) = self.parse_header()? {
                 return Ok(Some(header));
             }
 
@@ -48,25 +47,25 @@ impl HttpConnection {
                     if self.buf.is_empty() {
                         return Ok(None);
                     } else {
-                        return Err(Error::Other("Connection was closed by peer".to_string()));
+                        return Err("Connection was closed by peer".to_string());
                     }
                 }
             } else {
-                return Err(Error::Other("Error while reading buffer".to_string()));
+                return Err("Error while reading buffer".to_string());
             }
         }
     }
 
-    fn parse_header(&mut self) -> Option<RequestHead> {
+    fn parse_header(&mut self) -> Result<Option<RequestHead>, String> {
         let mut buf = Cursor::new(&self.buf[..]);
-        if let Ok(_) = HttpFrame::is_header_receive(&mut buf) {
+        if let Some(_) = HttpFrame::is_header_receive(&mut buf) {
             let len = buf.position();
             buf.set_position(0);
-            let retval = Some(HttpFrame::parse_header(&mut buf, len as usize).unwrap());
+            let retval = Some(HttpFrame::parse_header(&mut buf, len as usize)?);
             self.buf.advance(len as usize);
-            return retval;
+            return Ok(retval);
         } else {
-            None
+            Ok(None)
         }
     }
 
