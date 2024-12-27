@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::error::Error;
 use std::io::{Cursor, Seek, SeekFrom};
 
 #[derive(Debug)]

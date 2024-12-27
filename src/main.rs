@@ -1,10 +1,8 @@
-use crate::http_frame::HttpFrame;
 use crate::http_handler::HttpConnection;
 use tokio::net::{TcpListener, TcpStream};
 
 pub mod http_frame;
 pub mod http_handler;
-pub mod parsers;
 
 #[tokio::main]
 async fn main() {
