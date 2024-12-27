@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 pub mod http_frame;
 pub mod http_handler;
+pub mod multipart_parser;
 
 #[tokio::main]
 async fn main() {

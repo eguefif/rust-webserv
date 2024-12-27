@@ -197,7 +197,9 @@ impl HttpConnection {
             let body = self.buf.split_to(content_length);
             eprintln!("Body: {:?}", body);
             match header.content_type() {
-                BodyType::MultiPart(boundary) => {}
+                BodyType::MultiPart(boundary) => {
+                    eprintln!("Boundary: {}", boundary);
+                }
                 BodyType::Text => eprintln!("Text body: {:?}", body),
                 BodyType::None => {}
             }
