@@ -1,6 +1,7 @@
+#![allow(dead_code)]
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::io::Cursor;
+use std::io::{Cursor, Seek, SeekFrom};
 
 #[derive(Debug)]
 pub enum HttpFrame {
@@ -19,27 +20,25 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl HttpFrame {
     pub fn is_header_receive(buf: &mut Cursor<&[u8]>) -> Result<()> {
-        let mut position = buf.position() as usize;
-        if position < 4 {
+        if buf.get_ref().len() < 4 {
             return Err(Error::Incomplete);
         }
-        let raw_data = buf.get_ref();
-        while position > 4 {
-            if raw_data[position] == 10
-                && raw_data[position - 1] == 13
-                && raw_data[position - 2] == 10
-                && raw_data[position - 3] == 13
+        if let Ok(position) = buf.seek(SeekFrom::End(0)) {
+            let raw_data = buf.get_ref();
+            if raw_data[position as usize - 1] == 10
+                && raw_data[position as usize - 2] == 13
+                && raw_data[position as usize - 3] == 10
+                && raw_data[position as usize - 4] == 13
             {
                 buf.set_position(position as u64);
                 return Ok(());
             }
-            position -= 1;
         }
 
         Err(Error::Incomplete)
     }
 
-    pub fn parse_header(buff: &mut Cursor<&[u8]>, end: usize) -> Result<HttpFrame> {
+    pub fn parse_header(buff: &mut Cursor<&[u8]>, end: usize) -> Result<RequestHead> {
         let method;
         let uri;
         let version;
@@ -72,9 +71,7 @@ impl HttpFrame {
                 }
             }
         }
-        Ok(HttpFrame::RequestHead(RequestHead::new(
-            method, uri, version, headers,
-        )))
+        Ok(RequestHead::new(method, uri, version, headers))
     }
 
     fn get_next_line(buff: &mut Cursor<&[u8]>, end: usize) -> Option<Vec<u8>> {
@@ -114,10 +111,10 @@ impl HttpFrame {
 
 #[derive(Debug)]
 pub struct RequestHead {
-    method: String,
-    uri: String,
-    version: String,
-    headers: HashMap<String, String>,
+    pub method: String,
+    pub uri: String,
+    pub version: String,
+    pub headers: HashMap<String, String>,
 }
 
 impl RequestHead {
@@ -133,6 +130,15 @@ impl RequestHead {
             version,
             headers,
         };
+    }
+
+    pub fn content_length(&mut self) -> Option<usize> {
+        if let Some(value) = self.headers.get("content-length") {
+            if let Ok(length) = value.parse::<usize>() {
+                return Some(length);
+            }
+        }
+        None
     }
 }
 

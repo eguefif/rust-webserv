@@ -9,6 +9,7 @@ pub mod parsers;
 #[tokio::main]
 async fn main() {
     tokio::spawn(async move { worker().await });
+    loop {}
 }
 
 async fn worker() {
@@ -30,5 +31,5 @@ async fn worker() {
 
 async fn process(socket: TcpStream) {
     let mut connection = HttpConnection::new(socket);
-    while Some(frame) = connection.read_frame().await.unwrap() {}
+    connection.handle().await;
 }

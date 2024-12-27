@@ -1,16 +1,24 @@
-use crate::http_frame::Error;
+use crate::http_frame::{Error, RequestHead};
 use crate::http_frame::{HttpFrame, Result};
 use crate::parsers::http::HttpPacket;
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
 use std::io::Cursor;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+#[derive(Debug)]
+enum HttpState {
+    Header,
+    Body,
+    Closed,
+}
 
 pub struct HttpConnection {
     stream: TcpStream,
     buf: BytesMut,
+    state: HttpState,
 }
 
 impl HttpConnection {
@@ -18,56 +26,76 @@ impl HttpConnection {
         return HttpConnection {
             stream,
             buf: BytesMut::with_capacity(1024 * 4),
+            state: HttpState::Header,
         };
     }
 
-    pub async fn read_frame(&mut self) -> Result<Option<HttpFrame>> {
+    pub async fn handle(&mut self) {
         loop {
-            if let Some(frame) = self.parse_frame()? {
-                return Ok(Some(frame));
+            if let Ok(header) = self.get_header().await {
+                if let Some(header) = header {
+                    eprintln!(
+                        "Header: {} {} {}\n{:?}",
+                        header.method, header.uri, header.version, header.headers
+                    );
+                    self.send_response().await;
+                }
+            } else {
+                eprintln!("Error while handling request");
             }
+        }
+    }
+
+    async fn get_header(&mut self) -> Result<Option<RequestHead>> {
+        loop {
+            if let Some(header) = self.parse_header() {
+                return Ok(Some(header));
+            }
+
             if let Ok(n) = self.stream.read_buf(&mut self.buf).await {
                 if self.buf.is_empty() && n == 0 {
                     return Ok(None);
                 } else {
+                    eprintln!("Error connection closed by peer");
                     return Err(Error::Other("Connection was closed by peer".to_string()));
                 }
             } else {
-                return Err(Error::Other("Error while reading socket".to_string()));
+                eprintln!("Error while reading buffer");
+                return Err(Error::Other("Error while reading buffer".to_string()));
             }
         }
     }
 
-    fn parse_frame(&mut self) -> Result<Option<HttpFrame>> {
+    fn parse_header(&mut self) -> Option<RequestHead> {
         let mut buf = Cursor::new(&self.buf[..]);
         if let Ok(_) = HttpFrame::is_header_receive(&mut buf) {
             let len = buf.position();
             buf.set_position(0);
-            let retval = HttpFrame::parse_header(&mut buf, len as usize)?;
+            let retval = Some(HttpFrame::parse_header(&mut buf, len as usize).unwrap());
+            println!("Request: {:?}", self.buf);
             self.buf.advance(len as usize);
-            return Ok(Some(retval));
+            self.state = HttpState::Body;
+            return retval;
+        } else {
+            None
         }
-        return Ok(None);
     }
-}
 
-fn is_connection_closing(http_packet: &HttpPacket) -> bool {
-    if let Some(connection) = http_packet.headers.get("connection") {
-        return connection != "keep-alive";
+    async fn send_response(&mut self) {
+        let response = self.create_response(String::from("Hello, World"));
+        self.stream.write_all(response.as_bytes()).await.unwrap();
     }
-    true
-}
+    fn create_response(&mut self, body: String) -> String {
+        let mut response = String::new();
+        response.push_str("HTTP/1.1 200 OK\r\n");
+        response.push_str(format!("Date: {}\r\n", get_time().as_str()).as_str());
+        response.push_str(format!("Content-Length: {}\r\n", body.len()).as_str());
+        response.push_str("Server: rust-webserv");
+        response.push_str("\r\n\r\n");
+        response.push_str(body.as_str());
 
-fn create_response(body: String) -> String {
-    let mut response = String::new();
-    response.push_str("HTTP/1.1 200 OK\r\n");
-    response.push_str(format!("Date: {}\r\n", get_time().as_str()).as_str());
-    response.push_str(format!("Content-Length: {}\r\n", body.len()).as_str());
-    response.push_str("Server: rust-webserv");
-    response.push_str("\r\n\r\n");
-    response.push_str(body.as_str());
-
-    response
+        response
+    }
 }
 
 fn get_time() -> String {
