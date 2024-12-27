@@ -194,6 +194,9 @@ impl HttpConnection {
     async fn handle_body(&mut self, header: &mut RequestHead) {
         eprintln!("Try to handle body");
         if let Some(content_length) = header.content_length() {
+            while content_length > self.buf.len() {
+                self.stream.read_buf(&mut self.buf).await.unwrap();
+            }
             let body = self.buf.split_to(content_length);
             eprintln!("Body: {:?}", body);
             match header.content_type() {
