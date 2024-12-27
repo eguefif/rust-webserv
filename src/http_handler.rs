@@ -82,7 +82,7 @@ impl HttpConnection {
         }
     }
 
-    fn create_response_body(&mut self, uri: String) -> Result<Vec<u8>, String> {
+    fn create_response_body(&mut self, uri: String) -> Result<Vec<u8>, u32> {
         let path;
         if uri == "/" {
             path = format!("./html/index.html");
@@ -92,7 +92,7 @@ impl HttpConnection {
         if let Ok(retval) = fs::read(path) {
             return Ok(retval);
         } else {
-            return Err("404".to_string());
+            return Err(404);
         }
     }
 
@@ -105,16 +105,16 @@ impl HttpConnection {
         }
     }
 
-    async fn send_error(&mut self, error: String) {
-        let uri = match error.as_str() {
-            "400" => String::from("400.html"),
-            "404" => String::from("404.html"),
-            "415" => String::from("415.html"),
-            "500" => String::from("500.html"),
+    async fn send_error(&mut self, error: u32) {
+        let uri = match error {
+            400 => String::from("400.html"),
+            404 => String::from("404.html"),
+            415 => String::from("415.html"),
+            500 => String::from("500.html"),
             _ => String::from("500.html"),
         };
         let body = self.create_response_body(uri).unwrap();
-        let header = self.create_response(body.len(), error.parse::<u32>().unwrap());
+        let header = self.create_response(body.len(), error);
         eprintln!("Sending: {}\n", header);
         self.stream.write_all(header.as_bytes()).await.unwrap();
         if !body.is_empty() {
@@ -161,7 +161,7 @@ fn get_month(month: u32) -> String {
     match month {
         1 => String::from("Jan"),
         2 => String::from("Feb"),
-        3 => String::from("Mar"),
+        3 => String::from("Mar4"),
         4 => String::from("Apr"),
         5 => String::from("May"),
         6 => String::from("Jun"),
