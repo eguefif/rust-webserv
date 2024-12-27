@@ -29,38 +29,47 @@ impl HttpConnection {
                             "Header: {} {} {}\n{:?}\n",
                             header.method, header.uri, header.version, header.headers
                         );
-                        match self.get_body(header.uri) {
+                        match self.create_response_body(header.uri) {
                             Ok(body) => self.send_response(body, 200).await,
                             Err(error) => self.send_error(error).await,
                         }
+                    } else {
+                        eprintln!("Ending connection");
+                        break;
                     }
                 }
-                Err(e) => eprintln!("Error while handling request: {:?}", e),
+                Err(e) => {
+                    eprintln!("Error while handling request: {:?}", e);
+                    break;
+                }
             }
         }
     }
 
     async fn get_header(&mut self) -> Result<Option<RequestHead>, String> {
         loop {
-            if let Some(header) = self.parse_header()? {
+            if let Some(header) = self.try_parse_header()? {
                 return Ok(Some(header));
             }
 
-            if let Ok(n) = self.stream.read_buf(&mut self.buf).await {
-                if n == 0 {
-                    if self.buf.is_empty() {
-                        return Ok(None);
-                    } else {
-                        return Err("Connection was closed by peer".to_string());
+            match self.stream.read_buf(&mut self.buf).await {
+                Ok(n) => {
+                    if n == 0 {
+                        if self.buf.is_empty() {
+                            return Ok(None);
+                        } else {
+                            return Err("Connection was closed by peer".to_string());
+                        }
                     }
                 }
-            } else {
-                return Err("Error while reading buffer".to_string());
+                Err(e) => {
+                    return Err(format!("Error while reading buffer: {}", e));
+                }
             }
         }
     }
 
-    fn parse_header(&mut self) -> Result<Option<RequestHead>, String> {
+    fn try_parse_header(&mut self) -> Result<Option<RequestHead>, String> {
         let mut buf = Cursor::new(&self.buf[..]);
         if let Some(_) = HttpFrame::is_header_receive(&mut buf) {
             let len = buf.position();
@@ -73,7 +82,7 @@ impl HttpConnection {
         }
     }
 
-    fn get_body(&mut self, uri: String) -> Result<Vec<u8>, String> {
+    fn create_response_body(&mut self, uri: String) -> Result<Vec<u8>, String> {
         let path;
         if uri == "/" {
             path = format!("./html/index.html");
@@ -104,7 +113,7 @@ impl HttpConnection {
             "500" => String::from("500.html"),
             _ => String::from("500.html"),
         };
-        let body = self.get_body(uri).unwrap();
+        let body = self.create_response_body(uri).unwrap();
         let header = self.create_response(body.len(), error.parse::<u32>().unwrap());
         eprintln!("Sending: {}\n", header);
         self.stream.write_all(header.as_bytes()).await.unwrap();
