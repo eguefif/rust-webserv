@@ -97,7 +97,7 @@ impl HttpConnection {
     }
 
     async fn send_response(&mut self, body: Vec<u8>, status_code: u32) {
-        let response = self.create_response(body.len(), status_code);
+        let response = self.create_response(body.len(), status_code, "Keep-Alive".to_string());
         eprintln!("Sending: {}\n", response);
         self.stream.write_all(response.as_bytes()).await.unwrap();
         if !body.is_empty() {
@@ -114,18 +114,19 @@ impl HttpConnection {
             _ => String::from("500.html"),
         };
         let body = self.create_response_body(uri).unwrap();
-        let header = self.create_response(body.len(), error);
+        let header = self.create_response(body.len(), error, "Keep-Alive".to_string());
         eprintln!("Sending: {}\n", header);
         self.stream.write_all(header.as_bytes()).await.unwrap();
         if !body.is_empty() {
             self.stream.write_all(&body).await.unwrap();
         }
     }
-    fn create_response(&mut self, len: usize, code: u32) -> String {
+    fn create_response(&mut self, len: usize, code: u32, connection: String) -> String {
         let mut response = String::new();
         response.push_str(format!("HTTP/1.1 {}\r\n", self.get_status_code(code)).as_str());
         response.push_str(format!("Date: {}\r\n", get_time().as_str()).as_str());
         response.push_str(format!("Content-Length: {}\r\n", len).as_str());
+        response.push_str(format!("Connection: {}\r\n", connection).as_str());
         response.push_str("Server: rust-webserv");
         response.push_str("\r\n\r\n");
 
@@ -141,6 +142,11 @@ impl HttpConnection {
             500 => "200 Internal Error".to_string(),
             _ => "500 Internal Error".to_string(),
         }
+    }
+
+    pub async fn send_close(&mut self) {
+        let header = self.create_response(0, 200, "close".to_string());
+        self.stream.write_all(header.as_bytes()).await.unwrap();
     }
 }
 fn get_time() -> String {
