@@ -27,18 +27,18 @@ impl HttpFrame {
         if buf.get_ref().len() < 4 {
             return None;
         }
-        if let Ok(mut position) = buf.seek(SeekFrom::End(0)) {
-            while position > 4 {
+        if let Ok(mut position) = buf.seek(SeekFrom::Start(0)) {
+            while (position as usize) < buf.get_ref().len() - 4 {
                 let raw_data = buf.get_ref();
-                if raw_data[position as usize - 1] == 10
-                    && raw_data[position as usize - 2] == 13
-                    && raw_data[position as usize - 3] == 10
-                    && raw_data[position as usize - 4] == 13
+                if raw_data[position as usize] == 13
+                    && raw_data[position as usize + 1] == 10
+                    && raw_data[position as usize + 2] == 13
+                    && raw_data[position as usize + 3] == 10
                 {
                     buf.set_position(position as u64);
                     return Some(());
                 }
-                position -= 1;
+                position += 1;
             }
         }
 
