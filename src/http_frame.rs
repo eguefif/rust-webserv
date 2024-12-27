@@ -17,8 +17,8 @@ enum HttpError {
 }
 
 pub enum BodyType {
-    Image,
-    Form,
+    MultiPart(String),
+    Text,
     None,
 }
 
@@ -166,9 +166,19 @@ impl RequestHead {
 
     pub fn content_type(&mut self) -> BodyType {
         if let Some(ctype) = self.headers.get("content-type") {
-                return BodyType::MultiPart;
-        else {
-            None => return BodyType::None,
+            let mut splits = ctype.split(";");
+            let content_type = splits.next().unwrap();
+            match content_type {
+                "multipart/form-data" => {
+                    let multipart_info = splits.next().unwrap().split("=").collect::<Vec<_>>();
+                    let boundary = multipart_info[1];
+                    return BodyType::MultiPart(String::from(boundary));
+                }
+                "application/x-www-form-urlencoded" => return BodyType::Text,
+                _ => return BodyType::None,
+            }
+        } else {
+            return BodyType::None;
         }
     }
 }
