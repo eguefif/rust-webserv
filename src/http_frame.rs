@@ -16,20 +16,29 @@ enum HttpError {
     Other(String),
 }
 
+pub enum BodyType {
+    Image,
+    Form,
+    None,
+}
+
 impl HttpFrame {
     pub fn is_header_receive(buf: &mut Cursor<&[u8]>) -> Option<()> {
         if buf.get_ref().len() < 4 {
             return None;
         }
-        if let Ok(position) = buf.seek(SeekFrom::End(0)) {
-            let raw_data = buf.get_ref();
-            if raw_data[position as usize - 1] == 10
-                && raw_data[position as usize - 2] == 13
-                && raw_data[position as usize - 3] == 10
-                && raw_data[position as usize - 4] == 13
-            {
-                buf.set_position(position as u64);
-                return Some(());
+        if let Ok(mut position) = buf.seek(SeekFrom::End(0)) {
+            while position > 4 {
+                let raw_data = buf.get_ref();
+                if raw_data[position as usize - 1] == 10
+                    && raw_data[position as usize - 2] == 13
+                    && raw_data[position as usize - 3] == 10
+                    && raw_data[position as usize - 4] == 13
+                {
+                    buf.set_position(position as u64);
+                    return Some(());
+                }
+                position -= 1;
             }
         }
 
@@ -153,6 +162,14 @@ impl RequestHead {
             }
         }
         None
+    }
+
+    pub fn content_type(&mut self) -> BodyType {
+        if let Some(ctype) = self.headers.get("content-type") {
+                return BodyType::MultiPart;
+        else {
+            None => return BodyType::None,
+        }
     }
 }
 

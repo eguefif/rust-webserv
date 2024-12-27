@@ -1,3 +1,4 @@
+use crate::http_frame::BodyType;
 use crate::http_frame::HttpFrame;
 use crate::http_frame::RequestHead;
 use bytes::{Buf, BytesMut};
@@ -24,11 +25,12 @@ impl HttpConnection {
         loop {
             match self.get_header().await {
                 Ok(header_result) => {
-                    if let Some(header) = header_result {
+                    if let Some(mut header) = header_result {
                         eprintln!(
                             "Header: {} {} {}\n{:?}\n",
                             header.method, header.uri, header.version, header.headers
                         );
+                        self.handle_body(&mut header).await;
                         match self.create_response_body(header.uri) {
                             Ok(body) => self.send_response(body, 200).await,
                             Err(error) => self.send_error(error).await,
@@ -147,6 +149,19 @@ impl HttpConnection {
     pub async fn send_close(&mut self) {
         let header = self.create_response(0, 200, "close".to_string());
         self.stream.write_all(header.as_bytes()).await.unwrap();
+    }
+
+    async fn handle_body(&mut self, header: &mut RequestHead) {
+        eprintln!("Try to handle body");
+        if let Some(content_length) = header.content_length() {
+            let body = self.buf.split_to(content_length);
+            eprintln!("Body: {:?}", body);
+            match header.content_type() {
+                BodyType::Image => {}
+                BodyType::Form => {}
+                BodyType::None => {}
+            }
+        }
     }
 }
 fn get_time() -> String {
