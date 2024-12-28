@@ -1,6 +1,7 @@
 use crate::http_frame::BodyType;
 use crate::http_frame::HttpFrame;
 use crate::http_frame::RequestHead;
+use crate::multipart_parser::MultiPart;
 use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
@@ -8,6 +9,12 @@ use std::fs;
 use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+enum BodyData {
+    MultiPart(MultiPart),
+    Text(String),
+    None,
+}
 
 pub struct HttpConnection {
     stream: TcpStream,
@@ -77,7 +84,7 @@ impl HttpConnection {
             let len = buf.position();
             buf.set_position(0);
             let retval = Some(HttpFrame::parse_header(&mut buf, len as usize)?);
-            self.buf.advance(len as usize);
+            self.buf.advance(len as usize + 4);
             return Ok(retval);
         } else {
             Ok(None)
@@ -198,14 +205,22 @@ impl HttpConnection {
                 self.stream.read_buf(&mut self.buf).await.unwrap();
             }
             let body = self.buf.split_to(content_length);
-            eprintln!("Body: {:?}", body);
-            match header.content_type() {
+            let structured_body = match header.content_type() {
                 BodyType::MultiPart(boundary) => {
-                    eprintln!("Boundary: {}", boundary);
+                    BodyData::MultiPart(MultiPart::new(body, boundary))
                 }
-                BodyType::Text => eprintln!("Text body: {:?}", body),
-                BodyType::None => {}
-            }
+                BodyType::Text => BodyData::Text(String::from_utf8(body.to_vec()).unwrap()),
+                BodyType::None => BodyData::None,
+            };
+            self.process_body(structured_body);
+        }
+    }
+
+    fn process_body(&mut self, body: BodyData) {
+        match body {
+            BodyData::Text(value) => eprintln!("Text: {}", value),
+            BodyData::MultiPart(value) => eprintln!("Multipart: {:?}", value),
+            BodyData::None => eprintln!("No data"),
         }
     }
 }
