@@ -1,6 +1,7 @@
 use crate::http_frame::BodyType;
 use crate::http_frame::HttpFrame;
 use crate::http_frame::RequestHead;
+use crate::multipart_parser::MultiPart;
 use bytes::{Buf, BytesMut};
 use chrono::Utc;
 use chrono::prelude::*;
@@ -8,6 +9,12 @@ use std::fs;
 use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+enum BodyData {
+    MultiPart(MultiPart),
+    Text(String),
+    None,
+}
 
 pub struct HttpConnection {
     stream: TcpStream,
@@ -22,35 +29,20 @@ impl HttpConnection {
     }
 
     pub async fn handle(&mut self) {
-        loop {
-            match self.get_header().await {
-                Ok(header_result) => {
-                    if let Some(mut header) = header_result {
-                        eprintln!(
-                            "Header: {} {} {}\n{:?}\n",
-                            header.method, header.uri, header.version, header.headers
-                        );
-                        self.handle_body(&mut header).await;
-                        match self.create_response_body(header.uri.clone()) {
-                            Ok(body) => self.send_response(body, 200, header.uri).await,
-                            Err(error) => self.send_error(error).await,
-                        }
-                    } else {
-                        eprintln!("Ending connection");
-                        break;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error while handling request: {:?}", e);
+        while let Ok(frame) = self.get_next_frame().await {
+            match frame {
+                Some(frame) => eprintln!("{:?}", frame),
+                None => {
+                    eprintln!("End of connection with {:?}", self.stream.peer_addr());
                     break;
                 }
             }
         }
     }
 
-    async fn get_header(&mut self) -> Result<Option<RequestHead>, String> {
+    async fn get_next_frame(&mut self) -> Result<Option<HttpFrame>, String> {
         loop {
-            if let Some(header) = self.try_parse_header()? {
+            if let Some(header) = self.try_get_next_frame()? {
                 return Ok(Some(header));
             }
 
@@ -71,13 +63,13 @@ impl HttpConnection {
         }
     }
 
-    fn try_parse_header(&mut self) -> Result<Option<RequestHead>, String> {
+    fn try_get_next_frame(&mut self) -> Result<Option<HttpFrame>, String> {
         let mut buf = Cursor::new(&self.buf[..]);
-        if let Some(_) = HttpFrame::is_header_receive(&mut buf) {
+        if let Some(_) = is_frame_ready(&mut buf) {
             let len = buf.position();
             buf.set_position(0);
-            let retval = Some(HttpFrame::parse_header(&mut buf, len as usize)?);
-            self.buf.advance(len as usize);
+            let retval = Some(HttpFrame::new(&mut buf, len as usize)?);
+            self.buf.advance(len as usize + 4);
             return Ok(retval);
         } else {
             Ok(None)
@@ -198,14 +190,22 @@ impl HttpConnection {
                 self.stream.read_buf(&mut self.buf).await.unwrap();
             }
             let body = self.buf.split_to(content_length);
-            eprintln!("Body: {:?}", body);
-            match header.content_type() {
+            let structured_body = match header.content_type() {
                 BodyType::MultiPart(boundary) => {
-                    eprintln!("Boundary: {}", boundary);
+                    BodyData::MultiPart(MultiPart::new(body, boundary))
                 }
-                BodyType::Text => eprintln!("Text body: {:?}", body),
-                BodyType::None => {}
-            }
+                BodyType::Text => BodyData::Text(String::from_utf8(body.to_vec()).unwrap()),
+                BodyType::None => BodyData::None,
+            };
+            self.process_body(structured_body);
+        }
+    }
+
+    fn process_body(&mut self, body: BodyData) {
+        match body {
+            BodyData::Text(value) => eprintln!("Text: {}", value),
+            BodyData::MultiPart(value) => eprintln!("Multipart: {:?}", value),
+            BodyData::None => eprintln!("No data"),
         }
     }
 }

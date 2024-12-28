@@ -1,4 +1,4 @@
-use crate::http_handler::HttpConnection;
+use crate::http_connection::HttpConnection;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
 use tokio::signal;
@@ -6,8 +6,8 @@ use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 
+pub mod http_connection;
 pub mod http_frame;
-pub mod http_handler;
 pub mod multipart_parser;
 
 #[tokio::main]

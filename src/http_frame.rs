@@ -4,13 +4,6 @@ use std::collections::HashMap;
 use std::io::{Cursor, Seek, SeekFrom};
 
 #[derive(Debug)]
-pub enum HttpFrame {
-    RequestHead(RequestHead),
-    ResponseHead(ResponseHead),
-    BodyChunk(Bytes),
-}
-
-#[derive(Debug)]
 enum HttpError {
     Incomplete,
     Other(String),
@@ -20,6 +13,12 @@ pub enum BodyType {
     MultiPart(String),
     Text,
     None,
+}
+
+#[derive(Debug)]
+pub struct HttpFrame {
+    header: RequestHead,
+    body: Bytes,
 }
 
 impl HttpFrame {
